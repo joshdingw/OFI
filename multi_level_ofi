@@ -3,8 +3,14 @@ import pandas as pd
 def calc_multi_level_ofi(df: pd.DataFrame, levels: list[int] = list(range(10)), window: str | None = None) -> pd.DataFrame:
     """
     Calculate multi-level OFI (Level 0 to 9), optionally aggregated over a time window.
-    Returns a DataFrame with one OFI column per level, indexed by ts_event or window.
+    Returns a DataFrame with one scaled OFI column per level, indexed by ts_event or window.
     """
+    # 确保 index 是 DatetimeIndex
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df = df.copy()
+        df['ts_event'] = pd.to_datetime(df['ts_event'])
+        df = df.set_index('ts_event')
+
     result = {}
 
     for level in levels:
@@ -31,10 +37,18 @@ def calc_multi_level_ofi(df: pd.DataFrame, levels: list[int] = list(range(10)), 
 
         ofi = bid_contrib - ask_contrib
         ofi.iloc[0] = 0  # First row undefined
-        result[f'ofi_lvl{level+1}'] = ofi
+
+        # calculate average depth
+        avg_depth = (df[bid_sz] + df[ask_sz]) / 2
+       
+        if window is not None:
+            avg_depth = avg_depth.rolling(window=window, min_periods=1).mean()
+        # normalize
+        scaled_ofi = ofi / avg_depth.replace(0, pd.NA)
+        result[f'ofi_lvl{level+1}'] = scaled_ofi
 
     ofi_df = pd.DataFrame(result)
-    ofi_df.index = df['ts_event']
+    ofi_df.index = df.index
 
     if window is not None:
         ofi_df = ofi_df.resample(window).sum()
